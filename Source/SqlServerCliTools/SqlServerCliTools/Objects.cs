@@ -3,7 +3,7 @@ using System.Data.SqlClient;
 using System.Data;
 using System.Collections.Generic;
 
-namespace SqlServerSchemaExport {
+namespace SqlServerCliTools {
 
     public abstract class DatabaseObject : IComparable {
 

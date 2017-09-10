@@ -5,8 +5,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SqlServerSchemaExport {
+namespace SqlServerCliTools {
+
     class Program {
+
         static void Main(string[] args) {
             var server = args[0];
             var db_name = args[1];

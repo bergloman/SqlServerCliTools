@@ -14,5 +14,5 @@ obj
 /ThirdParty
 /.vs/config/applicationhost.config
 /Prototypes/AzureDocumentDb/packages
-/Source/SqlServerSchemaExport/.vs/SqlServerSchemaExport/v15/sqlite3
-/Source/SqlServerSchemaExport/SqlServerSchemaExport/out
+/Source/SqlServerCliTools/.vs/SqlServerCliTools/v15/sqlite3
+/Source/SqlServerCliTools/SqlServerCliTools/out
