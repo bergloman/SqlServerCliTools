@@ -1,0 +1,21 @@
+
+
+        /// <summary> This method returns a list of table-wrapper objects by using specified filter</summary>
+        /// <typeparam name="T">Table-wrapper type to be emitted.</typeparam>
+        /// <param name="db">Data provider that will return data from the database </param>
+        /// <param name="field_name">Field by which to search</param>
+        /// <param name="val">Field value to match.</param>
+        /// <returns>List of objects that were created with data that was returned from the database</returns>
+        public static IList<T> LoadList<T>(this IDataProvider db, string field_name, object val) where T : BaseTableWrapper, new() {
+            return new Query<T>()
+                .IsEqual(field_name, val)
+                .GetList(db);
+        }
+
+        /// <summary> This method returns a list of table-wrapper objects by getting all record from the database.</summary>
+        /// <typeparam name="T">Table-wrapper type to be emitted.</typeparam>
+        /// <param name="db">Data provider that will return data from the database </param>
+        /// <returns>List of objects that were created with data that was returned from the database</returns>
+        public static IList<T> LoadList<T>(this IDataProvider db) where T : BaseTableWrapper, new() {
+            return new Query<T>().GetList(db);
+        }

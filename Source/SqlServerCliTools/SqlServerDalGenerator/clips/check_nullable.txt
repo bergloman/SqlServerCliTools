@@ -1,0 +1,42 @@
+		/// <summary>
+		/// this method checks is specified data within provided object is null
+		/// </summary>
+		/// <param name="o">object containing data</param>
+		/// <returns>true if object points to null</returns>
+		static bool CheckNull(object o){
+			if (o is INullable) return (o as INullable).IsNull;
+			if (o is string) return (o as string) == null;
+			if (o is Array) return (o as Array) == null;
+			return o == null;
+		}
+		
+        /// <summary>
+		/// this method creates new parameter
+		/// </summary>
+		static IDbDataParameter AddParameter(IDbCommand cmd, string name, DbType type, object val) {
+            IDbDataParameter par = cmd.CreateParameter();
+            par.DbType = type;
+            par.ParameterName = name;
+            par.Value = val;
+            cmd.Parameters.Add(par);
+            return par;
+        }
+
+        /// <summary>
+		/// this method creates new output parameter
+		/// </summary>
+        static IDbDataParameter AddParameterOut(IDbCommand cmd, string name, DbType type, object val, byte? precision, byte? scale, int? size) {
+            IDbDataParameter par = cmd.CreateParameter();
+            par.DbType = type;
+            par.Direction = ParameterDirection.InputOutput;
+            par.ParameterName = name;
+            par.Value = val;
+            if (precision.HasValue) {
+                par.Precision = precision.Value;
+                par.Scale = scale.Value;
+            }
+            if (size.HasValue)
+                par.Size = size.Value;
+            cmd.Parameters.Add(par);
+            return par;
+        }
