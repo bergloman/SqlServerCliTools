@@ -11,9 +11,6 @@ namespace DalGenerator {
     public class CodeGenerationParameters {
 
         /// <summary>Sql server name</summary>
-        public string local_file;
-
-        /// <summary>Sql server name</summary>
         public string sql_server_name;
         /// <summary>name of the database to create DAL for</summary>
         public string schema_name;
@@ -67,11 +64,11 @@ namespace DalGenerator {
         /// <summary> Should we skip injection of base classes and interfaces </summary>
         public bool dont_inject_infrastructure_classes = false;
         /// <summary> Should we skip injection of basic data provider for SQL server  </summary>
-        public bool dont_inject_basic_sql_provider = true;
+        public bool dont_inject_basic_sql_provider = false;
         /// <summary> Should we skip injection of IQToolkit-related stuff </summary>
-        public bool dont_inject_linq_helpers = false;
+        public bool dont_inject_linq_helpers = true;
         /// <summary> Should query object be created </summary>
-        public bool generate_query_object = false;
+        public bool generate_query_object = true;
 
         /// <summary>If true then some stored procedures return tables - different code will be generated.</summary>
 	    public bool use_sp_with_tables = true;

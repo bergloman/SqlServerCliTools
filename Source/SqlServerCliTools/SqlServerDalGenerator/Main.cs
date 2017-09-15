@@ -28,13 +28,11 @@ namespace DalGenerator {
                 s = sr.ReadToEnd();
             }
             var pars = (CodeGenerationParameters)Utils.DeserializeXml(s, typeof(CodeGenerationParameters));
-            pars.export_file_name = pars.local_file;
-
+            
             // perform code generation
-
             try {
                 Trace.WriteLine("Generating code...");
-                CodeGenerator cg = new CodeGenerator(pars);
+                var cg = new CodeGenerator(pars);
                 cg.CreateCsCode();
 
                 Trace.WriteLine("Done.");

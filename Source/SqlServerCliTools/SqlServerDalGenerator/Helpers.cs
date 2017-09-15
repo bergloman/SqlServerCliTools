@@ -287,20 +287,18 @@ namespace DalGenerator {
             this.pars = pars;
         }
 
-
         /// <summary>
         /// Main method of this class
         /// </summary>
         public void CreateCsCode() {
             var sb = new StringBuilder();
-            if (pars.use_username)
+            if (pars.use_username) {
                 con = Utils.CreateConnection(pars.sql_server_name, pars.schema_name, pars.uid, pars.pwd);
-            else
+            } else {
                 con = Utils.CreateConnection(pars.sql_server_name, pars.schema_name);
+            }
             try {
-
                 GenerateNamespaces(sb);
-
                 sb.AppendLine("namespace " + pars.code_namespace + " {");
 
                 // insert optional code that user specified in settings
