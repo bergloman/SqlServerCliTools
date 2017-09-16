@@ -10,6 +10,11 @@ namespace SqlServerCliTools {
     class Program {
 
         static void Main(string[] args) {
+            if (args.Length!=3) {
+                Console.WriteLine("Invalid arguments for this program. Usage:");
+                Console.WriteLine("SqlServerCliTools <server> <database> <output_dir>");
+            }
+
             var server = args[0];
             var db_name = args[1];
             var output_dir = args[2];
