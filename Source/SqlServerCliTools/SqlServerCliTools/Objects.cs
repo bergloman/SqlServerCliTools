@@ -561,25 +561,50 @@ namespace SqlServerCliTools {
                             }
                         }
 
-                        command.CommandText = @"
-                            select 
-                                i.name as index_name,
-                                i.id as id,
-                                cast(i.indid as int) as indid
-                            from
-                                sysindexes i
-                                inner join sysindexkeys ik on ik.id = i.id and ik.indid = i.indid
-                                inner join syscolumns c on c.id = ik.id and c.colid =  ik.colid
-                            where
-                                not i.name like '_WA_Sys%' and
-                                not object_name(i.id) like 'sys%' 
-                            ";
+                        command.CommandText =
+                            @"
+select 
+    i.name as index_name,
+	i.object_id,
+	i.index_id,
+    ik.column_id as col_id,
+    ac.name as col_name,
+	t.name as table_name
+from
+    sys.indexes i
+    inner join sys.index_columns ik on ik.index_id = i.index_id and ik.object_id = i.object_id
+	inner join sys.all_columns ac on ac.column_id = ik.column_id and ac.object_id = ik.object_id
+	inner join sys.tables t ON i.object_id = t.object_id 
+where
+	i.is_hypothetical = 0 and
+	--i.is_primary_key = 0 and
+	--i.is_unique_constraint = 0 and
+	t.is_ms_shipped = 0";
                         using (var reader = command.ExecuteReader()) {
                             while (reader.Read()) {
                                 var f = new Index(reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2));
                                 Indexes[f.Name] = f;
                             }
                         }
+                        //@"
+                        //    select 
+                        //        i.name as index_name,
+                        //        i.id as id,
+                        //        cast(i.indid as int) as indid
+                        //    from
+                        //        sysindexes i
+                        //        inner join sysindexkeys ik on ik.id = i.id and ik.indid = i.indid
+                        //        inner join syscolumns c on c.id = ik.id and c.colid =  ik.colid
+                        //    where
+                        //        not i.name like '_WA_Sys%' and
+                        //        not object_name(i.id) like 'sys%' 
+                        //    ";
+                        //using (var reader = command.ExecuteReader()) {
+                        //    while (reader.Read()) {
+                        //        var f = new Index(reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2));
+                        //        Indexes[f.Name] = f;
+                        //    }
+                        //}
 
                     }
                     // gather the data for the tables, views, procs and functions
