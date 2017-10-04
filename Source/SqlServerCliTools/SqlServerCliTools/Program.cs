@@ -28,7 +28,7 @@ namespace SqlServerCliTools {
                 var sb = new StringBuilder();
                 foreach (var item in tab_obj.Columns.OrderBy(x => x.Value.Name)) {
                     var col = item.Value;
-                    sb.AppendLine($"{col.Name} {col.Type} len={col.Length} scale={col.Scale} nullable={col.Nullable}");
+                    sb.AppendLine($"{col.Name} {col.TypeName} len={col.Length} scale={col.Scale} nullable={col.Nullable}");
                 }
                 File.WriteAllText(Path.Combine(output_dir, $"tab_{tab_obj.Name}.txt"), sb.ToString());
             }

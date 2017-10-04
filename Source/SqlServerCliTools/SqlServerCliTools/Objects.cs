@@ -22,21 +22,23 @@ namespace SqlServerCliTools {
         }
 
         private void GetColumnData(SqlConnection conn) {
-            using (SqlCommand command = conn.CreateCommand()) {
-                command.CommandText = "select name, xtype, length, xscale, isnullable from syscolumns where id=@id order by colorder";
+            using (var command = conn.CreateCommand()) {
+                //command.CommandText = "select name, xtype, length, xscale, isnullable from syscolumns where id=@id order by colorder";
+                command.CommandText = "select a.name, a.xtype, a.length, a.xscale, a.isnullable, b.name as xtype_name from syscolumns a inner join sys.types b on a.xtype = b.user_type_id where id = @id order by colorder";
                 command.Parameters.Add("@id", System.Data.SqlDbType.Int).Value = this.Id;
 
-                SqlDataAdapter ad = new SqlDataAdapter(command);
-                DataTable tab = new DataTable();
+                var ad = new SqlDataAdapter(command);
+                var tab = new DataTable();
                 ad.Fill(tab);
 
                 foreach (DataRow r in tab.Rows) {
                     string name = r["name"].ToString().ToUpper();
+                    string tname = r["xtype_name"].ToString().ToLower();
                     int t = (byte)r["xtype"];
                     int l = (short)r["length"];
                     int c = (byte)r["xscale"];
                     int nullable = (int)r["isnullable"];
-                    Columns[name] = new Column(name, t, l, c, nullable == 1);
+                    Columns[name] = new Column(name, t, l, c, tname, nullable == 1);
                 }
             }
         }
@@ -71,8 +73,9 @@ namespace SqlServerCliTools {
 
     public class Column {
 
-        public Column(string name, int type, int length, int scale, bool nullable) {
+        public Column(string name, int type, int length, int scale, string type_name, bool nullable) {
             this.Name = name.ToLower();
+            this.TypeName = type_name.ToLower();
             this.Type = type;
             this.Length = length;
             this.Scale = scale;
@@ -81,6 +84,7 @@ namespace SqlServerCliTools {
 
         public string Name { get; set; }
         public int Type { get; set; }
+        public string TypeName { get; set; }
         public int Length { get; set; }
         public int Scale { get; set; }
         public bool Nullable { get; set; }
@@ -513,6 +517,7 @@ namespace SqlServerCliTools {
                     conn.Open();
                     using (var command = conn.CreateCommand()) {
                         command.CommandText = "select name, id from sysobjects where xtype='U' and not name like 'sys%'";
+
                         using (var reader = command.ExecuteReader()) {
                             while (reader.Read()) {
                                 var t = new UserTable(reader.GetString(0), reader.GetInt32(1));
@@ -556,6 +561,9 @@ namespace SqlServerCliTools {
                         command.CommandText = "select constraint_name, object_id(constraint_name) from information_schema.TABLE_CONSTRAINTS";
                         using (var reader = command.ExecuteReader()) {
                             while (reader.Read()) {
+                                if (reader.IsDBNull(0) || reader.IsDBNull(1)) {
+                                    continue;
+                                }
                                 var f = new Constraint(reader.GetString(0), reader.GetInt32(1), ConstraintType.CheckConstraint);
                                 CheckConstraints[f.Name] = f;
                             }
@@ -629,6 +637,7 @@ where
                     conn.Close();
                 }
             } catch (Exception ex) {
+                Console.WriteLine(ex.ToString());
                 throw ex;
             }
         }
