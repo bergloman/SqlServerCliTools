@@ -1,0 +1,476 @@
+﻿
+	#region basic SQL-server provider
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>
+    /// This class encapsulates MS SQL database access.
+    /// </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public class DbAccessSql : IDataProviderSpDisposable {
+
+        #region members
+
+        /// <summary> Connection string for establishing database connection</summary>
+        protected string con_string;
+
+        /// <summary> Flag indicating that we're inside the transaction</summary>
+        protected bool use_same_connection = false;
+
+        /// <summary> Flag indicating that we should commit transaction if it is still pending on dispose</summary>
+        protected bool auto_commit = false;
+
+        /// <summary> Flag indicating that we're inside the transaction</summary>
+        protected bool in_transaction = false;
+
+        /// <summary> Connection to database</summary>
+        protected System.Data.SqlClient.SqlConnection internal_connection;
+
+        /// <summary> Current transaction - if any.</summary>
+        protected System.Data.SqlClient.SqlTransaction internal_transaction;
+
+        /// <summary> This member stores name of connection (from extra connections) </summary>
+        protected string name;
+
+        /// <summary>Long timeout for sql commands</summary>
+        int _timeout_long = 20 * 60;
+
+        /// <summary>Short timeout for sql commands</summary>
+        int _timeout_short = 10;
+
+        /// <summary>Flag indicating that a long timeout should be set</summary>
+        bool use_long_timeout = false;
+
+        /// <summary>Utility property for accessing username in session</summary>
+        string username {
+            get {
+                return "g_system";
+            }
+        }
+
+        bool _skip_logging = false;
+        public bool SkipLogging {
+            get { return _skip_logging; }
+            set { _skip_logging = value; }
+        }
+
+        #endregion
+
+        #region transaction methods
+
+        /// <summary>
+        /// This method starts the transaction - nested transactions are not permitted.
+        /// </summary>
+        public void BeginTrans() {
+            System.Diagnostics.Trace.TraceInformation("Starting transaction...");
+            if (in_transaction) throw new Exception("This object is already in transaction. Nested transactions are not supported.");
+            in_transaction = true;
+            if (!use_same_connection) {
+                internal_connection = GetCon();
+            }
+            internal_transaction = internal_connection.BeginTransaction();
+        }
+
+        /// <summary>
+        /// This method commits the transaction
+        /// </summary>
+        public void Commit() {
+            System.Diagnostics.Trace.TraceInformation("Commiting transaction...");
+            if (!in_transaction) throw new Exception("This object is not in transaction.");
+            in_transaction = false;
+            internal_transaction.Commit();
+            if (!use_same_connection) {
+                internal_connection.Close();
+                internal_connection = null;
+            }
+            internal_transaction = null;
+        }
+
+        /// <summary>
+        /// This method rolls back the transaction.
+        /// </summary>
+        public void Rollback() {
+            System.Diagnostics.Trace.TraceInformation("Rolling back transaction...");
+            if (!in_transaction) throw new Exception("This object is not in transaction.");
+            in_transaction = false;
+            internal_transaction.Rollback();
+            if (!use_same_connection) {
+                internal_connection.Close();
+                internal_connection = null;
+            }
+            internal_transaction = null;
+        }
+
+        #endregion
+
+        #region constructors
+
+        /// <summary> The wrapper constructor. </summary>
+        /// <param name="con">Connection to be used - WARNING: connection will be closed when this
+        /// object goes out of scope.</param>
+        public DbAccessSql(System.Data.SqlClient.SqlConnection con) {
+            internal_connection = con;
+            use_same_connection = true;
+        }
+
+        /// <summary> The simple constructor. </summary>
+        /// <param name="con_str">Connection string to be used 
+        /// for establishing database connection.</param>
+        public DbAccessSql(string con_str) {
+            con_string = con_str;
+        }
+
+        /// <summary> The simple constructor. </summary>
+        /// <param name="con_str">Connection string to be used 
+        /// for establishing database connection.</param>
+        /// <param name="use_single_connection">Flag if single connection should be used - otherwise a new connection is used for every request outside a transaction</param>
+        /// <param name="auto_start_transaction">Should transaction be started automatically - used only if <see cref="use_single_connection"/> is true. </param>
+        /// <param name="auto_commit_on_dispose">Should commit be called if transaction is still pending on Dispose</param>
+        public DbAccessSql(string con_str, bool use_single_connection, bool auto_start_transaction, bool auto_commit_on_dispose) {
+            con_string = con_str;
+            if (use_single_connection) {
+                internal_connection = GetCon();
+                this.use_same_connection = true;
+                if (auto_start_transaction) {
+                    BeginTrans();
+                    this.auto_commit = auto_commit_on_dispose;
+                }
+            }
+        }
+
+        #endregion
+
+        #region utility methods and properties
+
+        /// <summary> Implementation of IDispose interface.
+        /// Cleans up and releases internal members. </summary>
+        void IDisposable.Dispose() {
+            if (in_transaction && internal_transaction != null) {
+                if (auto_commit) {
+                    Commit();
+                } else {
+                    Rollback();
+                }
+            }
+
+            if (internal_connection == null)
+                return;
+
+            internal_connection.Close();
+            internal_connection.Dispose();
+            internal_connection = null;
+        }
+
+        /// <summary> This method creates new database connection. </summary>
+        /// <returns> New database connection ready to be used. </returns>
+        protected System.Data.SqlClient.SqlConnection GetCon() {
+            var r = new System.Data.SqlClient.SqlConnection(con_string);
+            r.Open();
+            return r;
+        }
+
+        /// <summary>
+        /// Public read-only accessor to connection string property
+        /// </summary>
+        public string ConnectionString { get { return con_string; } }
+
+        /// <summary> This method logs information about the 
+        /// sql command that is to be executed. </summary>
+        /// <param name="sql"> Command to be executed. </param>
+        /// <param name="parameters">List of parameters</param>
+
+        void Log(string sql, object[] parameters) {
+            if (suppress_next_log) {
+                suppress_next_log = false;
+                suppress_next_log_after = true;
+                return;
+            }
+            if (suppress_next_log_after) {
+                suppress_next_log_after = false;
+                return;
+            }
+            var sb = new StringBuilder();
+            sb.Append("Executing command on SQL connection " + this.name + ": sql=[");
+            sb.Append(sql);
+            sb.Append("]");
+            if (parameters != null) {
+                foreach (object obj in parameters)
+                    sb.Append("[" + obj + "], ");
+            }
+            System.Diagnostics.Trace.TraceInformation(sb.ToString());
+        }
+
+        /// <summary> This method logs information about the 
+        /// sql command that is to be executed. </summary>
+        /// <param name="cmd"> Command to be executed. </param>
+        /// <param name="is_after">Flag if this command has already been executed. </param>
+
+        void Log(IDbCommand cmd, bool is_after) {
+            if (suppress_next_log) {
+                suppress_next_log = false;
+                suppress_next_log_after = true;
+                return;
+            }
+            if (suppress_next_log_after) {
+                suppress_next_log_after = false;
+                return;
+            }
+            if (cmd == null) return;
+            StringBuilder sb = new StringBuilder();
+            sb.Append((is_after ? "Finished executing command " : "Executing command ") + " on '" + this.name + "' connection: sql=[");
+            sb.Append(cmd.CommandText);
+            sb.Append("] values=");
+            foreach (IDataParameter par in cmd.Parameters) {
+                sb.Append("[" + par.ParameterName + "=" + par.Value + "]");
+            }
+            System.Diagnostics.Trace.TraceInformation(sb.ToString());
+        }
+        #endregion
+
+        #region execution methods
+
+        /// <summary> This method returns DataTable that is the 
+        /// result of given SQL command </summary>
+        /// <param name="sql_cmd">Sql command</param>
+        /// <returns>DataTable containing the data that is 
+        /// the result of the query.</returns>
+        public DataTable GetDataTab(string sql_cmd) {
+
+            Log(sql_cmd, null);
+
+            if (!in_transaction && !use_same_connection) {
+                var con = GetCon();
+                try {
+                    var cmd = CreateCommand(con);
+                    return GetDataSetInner(sql_cmd, cmd, null).Tables[0];
+                } finally {
+                    con.Close();
+                }
+            } else {
+                var cmd = CreateCommand(internal_connection);
+                return GetDataSetInner(sql_cmd, cmd, internal_transaction).Tables[0];
+            }
+        }
+
+        /// <summary> Helper method for getting dataset</summary>
+        /// <param name="sql_cmd">SQL command to execute</param>
+        /// <param name="cmd">Comamnd to use execute</param>
+        /// <param name="trans">Transaction to be used - can be NULL</param>
+        /// <returns>Returns resulting dataset</returns>
+        private static DataSet GetDataSetInner(string sql_cmd, System.Data.SqlClient.SqlCommand cmd, System.Data.SqlClient.SqlTransaction trans) {
+            cmd.CommandText = sql_cmd;
+            if (trans != null) {
+                cmd.Transaction = trans;
+            }
+            var da = new System.Data.SqlClient.SqlDataAdapter(cmd);
+            var ds = new DataSet();
+            da.Fill(ds);
+            return ds;
+        }
+
+        /// <summary> This method returns DataSet that is the 
+        /// result of given SQL command </summary>
+        /// <param name="sql_cmd">Sql command</param>
+        /// <returns>DataSet containing the data that is 
+        /// the result of the query.</returns>
+        public DataSet GetDataSet(string sql_cmd) {
+
+            Log(sql_cmd, null);
+            DataSet ds = new DataSet();
+
+            if (!in_transaction && !use_same_connection) {
+                System.Data.SqlClient.SqlConnection con = GetCon();
+                try {
+                    var cmd = CreateCommand(con);
+                    return GetDataSetInner(sql_cmd, cmd, null);
+                } finally { con.Close(); }
+            } else {
+                var cmd = CreateCommand(internal_connection);
+                return GetDataSetInner(sql_cmd, cmd, internal_transaction);
+            }
+        }
+
+        /// <summary> This method executes given sql command 
+        /// that does not return any data </summary>
+        /// <param name="sql_cmd">sql command to be executed</param>
+        public void ExecuteNonQuery(string sql_cmd) {
+            Log(sql_cmd, null);
+
+            if (!in_transaction && !use_same_connection) {
+                var con = GetCon();
+                try {
+                    var cmd = CreateCommand(con);
+                    cmd.CommandText = sql_cmd;
+                    cmd.ExecuteNonQuery();
+                } finally {
+                    con.Close();
+                }
+            } else {
+                var cmd = CreateCommand(internal_connection);
+                cmd.CommandText = sql_cmd;
+                cmd.Transaction = internal_transaction;
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary> This method executes given sql command with parameters
+        /// that does not return any data </summary>
+        /// <param name="sql_cmd">sql command to be executed</param>
+        /// <param name="parameters">list of parameters</param>
+        public void ExecuteNonQuery(string sql_cmd, object[] parameters) {
+            Log(sql_cmd, parameters);
+
+            if (!in_transaction && !use_same_connection) {
+                var con = GetCon();
+                try {
+                    var cmd = CreateCommand(con);
+                    cmd.CommandText = sql_cmd;
+                    AddParameters(cmd, parameters);
+                    cmd.ExecuteNonQuery();
+                } finally {
+                    con.Close();
+                }
+            } else {
+                var cmd = CreateCommand(internal_connection);
+                cmd.CommandText = sql_cmd;
+                cmd.Transaction = internal_transaction;
+                AddParameters(cmd, parameters);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary> This method adds parameters from given parameter list to OleDb command</summary>
+        /// <param name="cmd">Sql command</param>
+        /// <param name="parameters">list of parameters</param>
+        protected void AddParameters(System.Data.SqlClient.SqlCommand cmd, object[] parameters) {
+            for (int i = 0; i < parameters.Length; i++) {
+                cmd.Parameters.Add(parameters[i]);
+            }
+        }
+
+        /// <summary> This method returns singular result of the provided query. </summary>
+        /// <param name="sql_cmd">sql command to be executed</param>
+        /// <returns>Value of the first field of teh first row.</returns>
+        public object ExecuteScalar(string sql_cmd) {
+            Log(sql_cmd, null);
+
+            if (!in_transaction && !use_same_connection) {
+                var con = GetCon();
+                try {
+                    var cmd = CreateCommand(con);
+                    cmd.CommandText = sql_cmd;
+                    return cmd.ExecuteScalar();
+                } finally {
+                    con.Close();
+                }
+            } else {
+                var cmd = CreateCommand(internal_connection);
+                cmd.CommandText = sql_cmd;
+                cmd.Transaction = internal_transaction;
+                return cmd.ExecuteScalar();
+            }
+        }
+
+        /// <summary> This method fetches the last created identity </summary>
+        /// <returns> Integer value (in database it is decimal!!) </returns>
+        public long GetIdentity() {
+            var id = ExecuteScalar("select isnull(SCOPE_IDENTITY(), @@identity)");
+            return decimal.ToInt64((decimal)id);
+        }
+
+        /// <summary>
+        /// This method sets a flag for long timeout for sql command
+        /// </summary>
+        public void SetLongTimeout() {
+            use_long_timeout = true;
+        }
+
+        /// <summary>
+        /// Creates new command for provided connection.
+        /// It sets long or short command timeout.
+        /// </summary>
+        /// <returns>New command object</returns>
+        System.Data.SqlClient.SqlCommand CreateCommand(System.Data.SqlClient.SqlConnection _con) {
+            var res = _con.CreateCommand();
+            if (use_long_timeout) {
+                res.CommandTimeout = this._timeout_long;
+                use_long_timeout = false;
+            } else
+                res.CommandTimeout = this._timeout_short;
+            return res;
+        }
+
+        #endregion
+
+        #region IDataProvider implementation
+
+        /// <summary>IDataProvider implementation</summary>
+        DataTable IDataProvider.GetDataTable(string sql) {
+            return this.GetDataTab(sql);
+        }
+
+        /// <summary>IDataProvider implementation</summary>
+        void IDataProvider.ExecuteNonQuery(string sql) {
+            this.ExecuteNonQuery(sql);
+        }
+
+        /// <summary>IDataProvider implementation</summary>
+        long IDataProvider.GetIdentity() {
+            return this.GetIdentity();
+        }
+
+        /// <summary>IDataProvider implementation</summary>
+        string IDataProvider.DatabasePrefix {
+            get {
+                return string.Empty;
+            }
+        }
+
+        /// <summary>IDataProviderSp implementation</summary>
+        IDbCommand IDataProviderSp.CreateCommand() {
+            return new System.Data.SqlClient.SqlCommand("", internal_connection, internal_transaction);
+        }
+
+        /// <summary>IDataProviderSp implementation</summary>
+        void IDataProvider.SuppressLoggingOfNextCommand() {
+            suppress_next_log = true;
+            suppress_next_log_after = true;
+        }
+
+        /// <summary>Flag for skipping log operation upon the next call</summary>
+        bool suppress_next_log = false;
+
+        /// <summary>Flag for skipping log operation upon the next call of "log-after"</summary>
+        bool suppress_next_log_after = false;
+
+
+        #endregion
+
+        #region IDataProviderSp Members
+
+        public DataSet GetDataSet(IDbCommand cmd) {
+            Log(cmd, false);
+            var da = new System.Data.SqlClient.SqlDataAdapter(cmd as System.Data.SqlClient.SqlCommand);
+            var ds = new DataSet();
+            da.Fill(ds);
+            return ds;
+        }
+
+        public int ExecuteNonQuery(IDbCommand cmd) {
+            Log(cmd, false);
+            return cmd.ExecuteNonQuery();
+        }
+
+        public IDataReader ExecuteReader(IDbCommand cmd) {
+            Log(cmd, false);
+            return cmd.ExecuteReader();
+        }
+
+        public string SchemaPrefix {
+            get { return "dbo"; }
+        }
+
+        #endregion
+    }
+    
+    #endregion

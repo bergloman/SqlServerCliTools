@@ -1,0 +1,494 @@
+﻿
+    #region query object
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> Query object, used for fetching data from database. </summary>
+    /// <remarks>
+    /// <b>History</b>
+    /// <list type="bullet">
+    /// <item>27.06.2007 Vik; created </item>
+    /// <item>29.06.2007 Vik; added ExecuteDelete method </item>
+    /// <item>02.07.2007 Vik; added ExecuteUpdate method </item>
+    /// <item>18.07.2007 Vik; added greater-than and lower-than conditions </item>
+    /// <item>26.03.2008 Vik; added "like" condition </item>
+    /// <item>07.04.2008 Vik; added IsIn enhancements (parameter that is an array) </item>
+    /// <item>10.04.2008 Vik; added "WhereManual" condition </item>
+    /// <item>13.02.2009 Vik; Bug id 27705 - added support for ExecuteCount, for TOP X. It is now geenric class. </item>
+    /// </list>
+    /// </remarks>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public class Query<T> where T : BaseTableWrapper {
+
+        #region private types
+
+        /// <summary>
+        /// List of possible criteria types
+        /// </summary>
+        private enum QueryType {
+            Equal,
+            NotEqual,
+            Between,
+            IsNull,
+            IsNotNull,
+            IsIn,
+            Like,
+            IsNotIn,
+            IsGreaterThan,
+            IsGreaterOrEqualThan,
+            IsLowerThan,
+            IsLowerOrEqualThan,
+            ManualCondition
+        }
+
+        /// <summary>
+        /// This interface is used for creation of SQL fragments
+        /// </summary>
+        private interface ISqlGenerator {
+            string GetSql();
+        }
+
+        /// <summary>
+        /// This class will hold order-by instructions
+        /// </summary>
+        private class OrderByElement : ISqlGenerator {
+
+            bool is_asc = true;
+            string field_name;
+
+            /// <summary> Simple constructor </summary>
+            public OrderByElement(bool is_asc, string fs) {
+                this.is_asc = is_asc;
+                this.field_name = fs;
+            }
+
+            /// <summary>
+            /// This method constructs SQL statement
+            /// </summary>
+            public string GetSql() {
+                //string fields = string.Empty;
+                //foreach (string field_name in field_names) {
+                //    fields += field_name + (is_asc ? " ASC" : " DESC") + ",";
+                //}
+                //return fields.TrimEnd(',');
+                return field_name + (is_asc ? " ASC" : " DESC");
+            }
+        }
+
+        /// <summary>
+        /// This class will hold single query condition
+        /// </summary>
+        private class QueryElement : ISqlGenerator {
+
+            QueryType query_type;
+            List<object> values;
+            string field_name;
+
+            /// <summary>
+            /// Helper method that creates QueryElement from specified array.
+            /// </summary>
+            public static QueryElement CreateFromArray(QueryType qt, string fs, IEnumerable vals) {
+                List<object> values = new List<object>();
+                IEnumerator e = vals.GetEnumerator();
+                while (e.MoveNext())
+                    values.Add(e.Current);
+                QueryElement q = new QueryElement(qt, fs);
+                q.values = values;
+                return q;
+            }
+
+            /// <summary> Simple constructor </summary>
+            public QueryElement(QueryType qt, string fs, params object[] vals) {
+                this.query_type = qt;
+                this.values = new List<object>(vals);
+                this.field_name = fs;
+            }
+
+            /// <summary>
+            /// This method constructs SQL statement
+            /// </summary>
+            public string GetSql() {
+                StringBuilder sb;
+                switch (query_type) {
+                    case QueryType.Between:
+                        return string.Format(" {0} between {1} and {2} ",
+                                             field_name,
+                                             DataObjectHandler.Fs.FormatValue(values[0]),
+                                             DataObjectHandler.Fs.FormatValue(values[1]));
+                    case QueryType.ManualCondition:
+                        return " " + values[0] + " ";
+                    case QueryType.Equal:
+                        return string.Format(" {0} = {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+                    case QueryType.Like:
+                        return string.Format(" {0} like {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+                    case QueryType.NotEqual:
+                        return string.Format(" {0} <> {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+
+                    case QueryType.IsIn:
+                        if (values == null || values.Count == 0)
+                            return "1=0"; // always false
+
+                        sb = new StringBuilder(50, int.MaxValue);
+                        foreach (object o in values) {
+                            sb.Append(DataObjectHandler.Fs.FormatValue(o));
+                            sb.Append(", ");
+                        }
+                        sb.Remove(sb.Length - 2, 2);
+
+                        return string.Format(" {0} in ({1}) ", field_name, sb.ToString());
+
+                    case QueryType.IsNotIn:
+                        if (values == null || values.Count == 0)
+                            return "1=1"; // always false
+
+                        sb = new StringBuilder(50, int.MaxValue);
+                        foreach (object o in values) {
+                            sb.Append(DataObjectHandler.Fs.FormatValue(o));
+                            sb.Append(", ");
+                        }
+                        sb.Remove(sb.Length - 2, 2);
+
+                        return string.Format(" not {0} in ({1}) ", field_name, sb.ToString());
+
+                    case QueryType.IsNull:
+                        return string.Format(" {0} is null ", field_name);
+                    case QueryType.IsNotNull:
+                        return string.Format(" {0} is not null ", field_name);
+
+                    case QueryType.IsGreaterOrEqualThan:
+                        return string.Format(" {0} >= {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+                    case QueryType.IsGreaterThan:
+                        return string.Format(" {0} > {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+                    case QueryType.IsLowerOrEqualThan:
+                        return string.Format(" {0} <= {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+                    case QueryType.IsLowerThan:
+                        return string.Format(" {0} < {1} ", field_name, DataObjectHandler.Fs.FormatValue(values[0]));
+
+                    default:
+                        throw new ArgumentOutOfRangeException("query_type", query_type, "Invalid operation type in DAL query");
+                }
+            }
+        }
+
+        #endregion
+
+        #region members
+
+        /// <summary>Target type that we're quering for</summary>
+        protected Type target_type;
+
+        /// <summary> List of query elements </summary>
+        protected ArrayList query_elements = new ArrayList();
+
+        /// <summary> List of query elements </summary>
+        protected ArrayList update_elements = new ArrayList();
+
+        /// <summary> List of order by elements </summary>
+        protected ArrayList order_by_fields = new ArrayList();
+
+        /// <summary> List of fields to be selected </summary>
+        protected ArrayList select_fields = new ArrayList();
+
+        /// <summary> Should we execute count(*) </summary>
+        protected bool execute_count = false;
+
+        /// <summary> How many top rows should be returned </summary>
+        protected int? top_row = null;
+
+        #endregion
+
+        #region constructors
+
+        /// <summary> Public constructor </summary>
+        public Query() {
+            target_type = typeof(T);
+        }
+
+        #endregion
+
+        #region get SQl statements
+
+        /// <summary> Public constructor for creation of select SQl statement </summary>
+        public string GetSelectSql(IDataProvider provider) {
+
+            string field_list;
+            if (execute_count) {
+                field_list = "count(*)";
+            } else {
+                if (this.select_fields.Count == 0) {
+                    field_list = "*";
+                } else {
+                    string[] field_list_a = (string[])this.select_fields.ToArray(typeof(string));
+                    field_list = string.Join(", ", field_list_a);
+                }
+                if (top_row.HasValue)
+                    field_list = "top " + top_row.Value + " " + field_list;
+            }
+
+            string sql = "select {0} from {2}dbo.{1} ";
+            sql = string.Format(sql, field_list, DataObjectHandler.GetTableName(target_type), provider.DatabasePrefix);
+
+            if (this.query_elements.Count > 0) {
+                sql += " where " + Join(" and ", this.query_elements);
+            }
+
+            if (!execute_count && order_by_fields.Count > 0) {
+                sql += " order by " + Join(", ", this.order_by_fields);
+            }
+            return sql;
+        }
+
+        /// <summary> This method creates DELETE sql statement</summary>
+        public string GetDeleteSql(IDataProvider provider) {
+            string sql = "delete from {1}dbo.{0} ";
+            sql = string.Format(sql, DataObjectHandler.GetTableName(target_type), provider.DatabasePrefix);
+
+            if (this.query_elements.Count > 0) {
+                sql += " where " + Join(" and ", this.query_elements);
+            }
+
+            return sql;
+        }
+
+        /// <summary> This method creates UPDATE sql statement</summary>
+        public string GetUpdateSql(IDataProvider provider) {
+            string sql1 = "";
+            string sql2 = "";
+
+            if (this.update_elements.Count > 0) {
+                sql1 = Join(", ", this.update_elements);
+            }
+
+            if (this.query_elements.Count > 0) {
+                sql2 = " where " + Join(" and ", this.query_elements);
+            }
+
+            string sql = "update {3}dbo.{0} set {1} {2}";
+            sql = string.Format(sql, DataObjectHandler.GetTableName(target_type), sql1, sql2, provider.DatabasePrefix);
+            return sql;
+        }
+
+        #endregion
+
+        #region utility methods
+
+        /// <summary> This method concatenates list of ISqlGenerator-generated sqls</summary>
+        /// <param name="str">concatenation string</param>
+        /// <param name="ar">array of ISqlGenerator objects</param>
+        string Join(string str, ArrayList ar) {
+            var sc = new List<string>();
+            foreach (ISqlGenerator sg in ar) {
+                sc.Add(sg.GetSql());
+            }
+            return string.Join(str, sc.ToArray());
+        }
+
+        #endregion
+
+        #region execution methods
+
+        /// <summary> This method executes SQL against specified provider </summary>
+        public DataTable GetDataTable(IDataProvider provider) {
+            return provider.GetDataTable(GetSelectSql(provider));
+        }
+
+        /// <summary> This method executes SQL against specified provider </summary>
+        public Array Execute(IDataProvider provider) {
+
+            this.select_fields.Clear(); // always return all fields
+            DataTable tab = provider.GetDataTable(GetSelectSql(provider));
+
+            ArrayList ar = new ArrayList();
+            foreach (DataRow r in tab.Rows) {
+                BaseTableWrapper btw = Activator.CreateInstance(target_type) as BaseTableWrapper;
+                btw.Load(r);
+                ar.Add(btw);
+            }
+
+            return ar.ToArray(target_type);
+        }
+
+        /// <summary> This method executes SQL against specified provider </summary>
+        public long ExecuteCount(IDataProvider provider) {
+            this.execute_count = true;
+            DataTable tab = provider.GetDataTable(GetSelectSql(provider));
+            return (long)tab.Rows[0][0];
+        }
+
+        /// <summary> This method executes DELETE sql against specified provider </summary>
+        public void ExecuteDelete(IDataProvider provider) {
+            provider.ExecuteNonQuery(GetDeleteSql(provider));
+        }
+
+
+        /// <summary> This method executes UPDATE sql against specified provider </summary>
+        public void ExecuteUpdate(IDataProvider provider) {
+            provider.ExecuteNonQuery(GetUpdateSql(provider));
+        }
+
+        /// <summary> 
+        /// This method executes SQL against specified provider 
+        /// and returns list of results already cased as specified type.
+        /// </summary>
+        public IList<T> GetList(IDataProvider provider) {
+            var res = this.Execute(provider);
+            List<T> ar = new List<T>();
+            foreach (object obj in res) {
+                ar.Add(obj as T);
+            }
+            return ar;
+        }
+
+        #endregion
+
+        #region query construction methods
+
+        #region select and update fields
+
+        /// <summary> Adds select-field instruction </summary>
+        public Query<T> SelectField(params string[] fields) {
+            select_fields.AddRange(fields);
+            return this;
+        }
+
+        /// <summary> Adds update-field instruction </summary>
+        public Query<T> UpdateField(string field_name, object val) {
+            update_elements.Add(new QueryElement(QueryType.Equal, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds select-field instruction </summary>
+        public Query<T> SetTop(int top) {
+            this.top_row = top;
+            return this;
+        }
+
+        #endregion
+
+        #region order by
+
+        /// <summary> Adds specified field or order by expresion into list of order by fields - for ascending sort</summary>
+        public Query<T> OrderBy(params string[] order_expresion) {
+            return OrderByAsc(order_expresion);
+        }
+
+        /// <summary> Adds specified field or order by expresion into list of order by fields - for ascending sort</summary>
+        public Query<T> OrderByAsc(params string[] order_expresion) {
+            foreach (var s in order_expresion)
+                order_by_fields.Add(new OrderByElement(true, s));
+            return this;
+        }
+
+        /// <summary> Adds specified field or order by expresion into list of order by fields - for descending sort</summary>
+        public Query<T> OrderByDesc(params string[] order_expresion) {
+            foreach (var s in order_expresion)
+                order_by_fields.Add(new OrderByElement(false, s));
+            return this;
+        }
+
+        #endregion
+
+        #region where conditions
+
+        /// <summary> Adds equality condition </summary>
+        public Query<T> IsEqual(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.Equal, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds like condition </summary>
+        public Query<T> IsLike(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.Like, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds inequality condition </summary>
+        public Query<T> IsNotEqual(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.NotEqual, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds between condition </summary>
+        public Query<T> IsBetween(string field_name, object val1, object val2) {
+            query_elements.Add(new QueryElement(QueryType.Between, field_name, val1, val2));
+            return this;
+        }
+
+        /// <summary> Adds is null condition </summary>
+        public Query<T> IsNull(string field_name) {
+            query_elements.Add(new QueryElement(QueryType.IsNull, field_name));
+            return this;
+        }
+
+        /// <summary> Adds not is null condition </summary>
+        public Query<T> IsNotNull(string field_name) {
+            query_elements.Add(new QueryElement(QueryType.IsNotNull, field_name));
+            return this;
+        }
+
+
+        #region IsIn methods
+
+        /// <summary> Adds "is in" condition, but accepts an array. Its contents will be stored into query, not the array itself. </summary>
+        public Query<T> IsInArray(string field_name, IEnumerable vals) {
+            query_elements.Add(QueryElement.CreateFromArray(QueryType.IsIn, field_name, vals));
+            return this;
+        }
+
+        /// <summary> Adds "is in" condition. It accepts an array of parameters. If you need to send in an already existing array, use
+        /// the function with generic type. </summary>
+        public Query<T> IsIn(string field_name, params object[] vals) {
+            query_elements.Add(new QueryElement(QueryType.IsIn, field_name, vals));
+            return this;
+        }
+
+        /// <summary> Adds "not is in" condition, but accepts an array. Its contents will be stored into query, not the array itself. </summary>
+        public Query<T> IsNotInArray(string field_name, IEnumerable vals) {
+            query_elements.Add(QueryElement.CreateFromArray(QueryType.IsNotIn, field_name, vals));
+            return this;
+        }
+
+        /// <summary> Adds "not is in" condition. If you need to send in an already existing array, use
+        /// the function with generic type.  </summary>
+        public Query<T> IsNotIn(string field_name, params object[] vals) {
+            query_elements.Add(new QueryElement(QueryType.IsNotIn, field_name, vals));
+            return this;
+        }
+
+        #endregion
+        /// <summary> Adds "greater than" condition </summary>
+        public Query<T> IsGreaterThan(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.IsGreaterThan, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds "greater or equal than" condition </summary>
+        public Query<T> IsGreaterOrEqualThan(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.IsGreaterOrEqualThan, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds "lower than" condition </summary>
+        public Query<T> IsLowerThan(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.IsLowerThan, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds "lower or equal than" condition </summary>
+        public Query<T> IsLowerOrEqualThan(string field_name, object val) {
+            query_elements.Add(new QueryElement(QueryType.IsLowerOrEqualThan, field_name, val));
+            return this;
+        }
+
+        /// <summary> Adds manually hardcoded condition </summary>
+        public Query<T> WhereManual(string condition) {
+            query_elements.Add(new QueryElement(QueryType.ManualCondition, null, condition));
+            return this;
+        }
+
+        #endregion
+
+        #endregion
+    }
+
+    #endregion

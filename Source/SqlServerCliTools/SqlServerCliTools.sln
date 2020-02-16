@@ -1,11 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26730.12
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29201.188
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlServerCliTools", "SqlServerCliTools\SqlServerCliTools.csproj", "{04C719D3-A6F2-42FC-AB9E-1DEE281C467D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlServerDalGenerator", "SqlServerDalGenerator\SqlServerDalGenerator.csproj", "{5AE4DDA6-9E65-4959-B22F-405F209063F5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlServerCliTools.DotNetCore", "SqlServerCliTools.DotNetCore\SqlServerCliTools.DotNetCore.csproj", "{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,6 +33,14 @@ Global
 		{5AE4DDA6-9E65-4959-B22F-405F209063F5}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5AE4DDA6-9E65-4959-B22F-405F209063F5}.Release|x86.ActiveCfg = Release|x86
 		{5AE4DDA6-9E65-4959-B22F-405F209063F5}.Release|x86.Build.0 = Release|x86
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Debug|x86.Build.0 = Debug|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Release|x86.ActiveCfg = Release|Any CPU
+		{245FA59D-2AA2-43AA-B4E0-C74D4CD058DC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

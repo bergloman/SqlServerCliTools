@@ -1,0 +1,1 @@
+..\..\..\..\Deploy\SqlServerDalGenerator\SqlServerDalGenerator.exe example1.xml

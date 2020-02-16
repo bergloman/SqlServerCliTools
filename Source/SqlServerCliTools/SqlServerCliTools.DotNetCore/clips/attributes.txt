@@ -1,0 +1,1373 @@
+
+    #region data provider interface
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> Interface provides basic access to data. </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public interface IDataProvider {
+
+        /// <summary>this method returns DataTable that is the result of specified SQL command</summary>
+        /// <param name="sql">SQL command</param>
+        DataTable GetDataTable(string sql);
+
+        /// <summary>this method returns DataSet that is the result of specified SQL command</summary>
+        /// <param name="sql">SQL command</param>
+        DataSet GetDataSet(string sql);
+
+        /// <summary> This method executes specified command in database </summary>
+        /// <param name="sql">Sql command</param>
+        void ExecuteNonQuery(string sql);
+
+        /// <summary> This method returns last generated identity </summary>
+        long GetIdentity();
+
+        /// <summary> This member is used for injecting linked-server database names... </summary>
+        string DatabasePrefix { get; }
+
+        /// <summary> This member is used for injecting schema name (if null, the dbo will be used) </summary>
+        string SchemaPrefix { get; }
+
+        /// <summary> This method instructs the provider to skip logging of the next commmand. </summary>
+        void SuppressLoggingOfNextCommand();
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> Interface provides access to command object. </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public interface IDataProviderSp : IDataProvider {
+
+        /// <summary> This method gets data as dataset </summary>
+        DataSet GetDataSet(IDbCommand cmd);
+
+        /// <summary> This method executes given command </summary>
+        int ExecuteNonQuery(IDbCommand cmd);
+
+        /// <summary> This method executes given command and returns data reader for results</summary>
+        IDataReader ExecuteReader(IDbCommand cmd);
+
+        /// <summary> This method creates new command object. </summary>
+        IDbCommand CreateCommand();
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> This interface also requires implementation of IDisposable. </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+    public interface IDataProviderSpDisposable : IDataProviderSp, IDisposable {
+    }
+
+    #endregion
+
+
+    #region attributes
+
+    /////////////////////////////////////////////////////////////////////////////////
+    /// <summary> This member attribute marks the field as database-bound.
+    /// Attribute value ColumnName denotes the database field to bind to.
+    /// Attribute value Optional denotes that this field need not be present when
+    /// loading data from DataRow.
+    /// </summary>
+    /////////////////////////////////////////////////////////////////////////////////
+
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    public class DataFieldAttribute : Attribute {
+
+        #region members
+
+        /// <summary> Name of the field to bind the member to. </summary>
+        string column_name;
+
+        /// <summary> Flag indicating this field is read-only (system generated/controlled - e.g. timestamp). </summary>
+        bool read_only = false;
+
+        /// <summary> Flag indicating this field is (part of) key. </summary>
+        bool key = false;
+
+        /// <summary> Flag indicating this field is identity.
+        /// It is skipped when constructing insert string. </summary>
+        bool identity = false;
+
+        /// <summary> This member denotes maximum length of the string value.
+        /// Thi smember is ignored if contained value is not string or if it set to -1. </summary>
+        int max_len = -1;
+
+        /// <summary> Flag indicating this field is unicode string - SQL statements should
+        /// be generated differently. </summary>
+        bool unicode = false;
+
+        /// <summary> Flag indicating this field is nullable. </summary>
+        bool nullable = false;
+
+        /// <summary> Type of this field in the database. </summary>
+        string db_type = null;
+
+        #endregion
+
+        /// <summary> Public constructor. </summary>
+        public DataFieldAttribute(string cn) {
+            this.column_name = cn.ToLower();
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public string ColumnName {
+            get { return column_name; }
+            set { column_name = value.ToLower(); }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public bool ReadOnly {
+            get { return read_only; }
+            set { read_only = value; }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public bool Key {
+            get { return key; }
+            set { key = value; }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public bool Identity {
+            get { return identity; }
+            set { identity = value; }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public int MaxLen {
+            get { return max_len; }
+            set { max_len = (value >= -1 ? value : -1); }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public bool Unicode {
+            get { return unicode; }
+            set { unicode = value; }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public bool Nullable {
+            get { return nullable; }
+            set { nullable = value; }
+        }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public string DbType {
+            get { return db_type; }
+            set { db_type = value; }
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    /// <summary> This member attribute marks the class as database-bound.
+    /// Attribute value TableName denotes the database table to bind to.
+    /// </summary>
+    ////////////////////////////////////////////////////////////////////////////////
+
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    public class DataTableAttribute : Attribute {
+
+        /// <summary> Name of the table to bind the object to. </summary>
+        string tableName;
+
+        /// <summary> Public constructor that initializes member. </summary>
+        public DataTableAttribute(string tableName) { this.tableName = tableName; }
+
+        /// <summary> Public accessor for the internal member. </summary>
+        public string TableName {
+            get { return tableName; }
+            set { tableName = value; }
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    /// <summary> This member attribute controls if the DAL operation for this class 
+    /// are logged or not. </summary>
+    ////////////////////////////////////////////////////////////////////////////////
+
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    public class DataTableLoggingAttribute : Attribute {
+
+        /// <summary> Skipp logging of insert statements, because they might be really big. </summary>
+        public bool SkipLoggingForInsert { get; set; }
+
+        /// <summary> Skipp logging of update statements, because they might be really big. </summary>
+        public bool SkipLoggingForUpdate { get; set; }
+
+        /// <summary> Skipp logging of delete statements, because they might be really big. </summary>
+        public bool SkipLoggingForDelete { get; set; }
+    }
+
+    #endregion
+
+    #region mappings
+
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> This static class contains utility mappings between table 
+    /// names and DAL classes. </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public static class DalMappings {
+
+        /// <summary> Internal structure for data </summary>
+        class TableRecord {
+            public string TableName { get; set; }
+            public Type DalType { get; set; }
+            public bool KeyIsIdentity { get; set; }
+            public bool KeyIsSingleField { get; set; }
+            public string KeyField { get; set; }
+            public Type KeyType { get; set; }
+        }
+
+        /// <summary> Static mapping from DAL type </summary>
+        static Dictionary<string, TableRecord> mapping_name = null;
+
+        /// <summary> Static mapping from table name </summary>
+        static Dictionary<Type, TableRecord> mapping_type = null;
+
+        /// <summary> Static constructor - initializes all data </summary>
+        static DalMappings() {
+            mapping_name = new Dictionary<string, TableRecord>();
+            mapping_type = new Dictionary<Type, TableRecord>();
+
+            var types = Assembly.GetExecutingAssembly().GetTypes().ToArray();
+            foreach (var t in types) {
+                var f = (DataTableAttribute[])t.GetCustomAttributes(typeof(DataTableAttribute), false);
+                if (f.Length != 1)
+                    continue;
+                var name = f[0].TableName;
+                var rec = new TableRecord() { DalType = t, TableName = name, KeyIsSingleField = true };
+                mapping_name.Add(name, rec);
+                mapping_type.Add(t, rec);
+
+                foreach (var property in t.GetMembers()) {
+
+                    var fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+                    if (fields.Length == 0) continue;
+
+                    var attr_data = fields[0];
+
+                    if (attr_data.Key) {
+                        if (rec.KeyField != null) {
+                            rec.KeyIsSingleField = false;
+                            break;
+                        }
+                        rec.KeyField = fields[0].ColumnName;
+                        if (attr_data.Identity)
+                            rec.KeyIsIdentity = true;
+                    }
+                }
+            }
+        }
+
+        /// <summary> This method mapps table name to DAL type </summary>
+        public static Type GetTypeForTable(string table_name) {
+            if (mapping_name.ContainsKey(table_name))
+                return mapping_name[table_name].DalType;
+            return null;
+        }
+
+        /// <summary> This method mapps DAL type to table name </summary>
+        public static string GetTableNameForType(Type t) {
+            if (mapping_type.ContainsKey(t))
+                return mapping_type[t].TableName;
+            return null;
+        }
+
+        /// <summary> This method mapps table name to id field </summary>
+        public static string GetIdFieldForTable(string table_name) {
+            if (mapping_name.ContainsKey(table_name)) {
+                var rec = mapping_name[table_name];
+                if (rec.KeyIsSingleField)
+                    return rec.KeyField;
+            }
+            return null;
+        }
+    }
+
+    #endregion
+
+	#region formatting strategy
+
+    ////////////////////////////////////////////////////////////////
+    /// <summary>
+    /// This interface provides method for different implementations
+    /// of value formatting. Uses Strategy design pattern.
+    /// </summary>
+    ////////////////////////////////////////////////////////////////
+    public interface IFormattingStrategy {
+
+        /// <summary> Strategy step </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <returns> Formatted value </returns>
+        string FormatValue(object val);
+    }
+
+    ////////////////////////////////////////////////////////////////
+    /// <summary>
+    /// This interface provides method for different implementations
+    /// of value formatting. Uses Strategy design pattern.
+    /// Provides additional parameter for limiting the
+    /// length of string.
+    /// </summary>
+    ////////////////////////////////////////////////////////////////
+    public interface IFormattingStrategyAdvanced : IFormattingStrategy {
+
+        /// <summary> Strategy step - this method provides means to
+        /// control number of decimal places that are used for output. </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="dec_places"> number of decimal places to be used </param>
+        /// <returns> Formatted value </returns>
+        string FormatValueDecPlaces(object val, int? dec_places);
+
+        /// <summary> Strategy step - this method provides means to
+        /// cut strings that are too long. </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="max_len"> Maximum length of string </param>
+        /// <returns> Formatted value </returns>
+        string FormatValue(object val, int max_len);
+
+        /// <summary> Strategy step - this method provides means to
+        /// cut strings that are too long. </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="max_len"> Maximum length of string </param>
+        /// <param name="is_unicode">Flag if string should be handled as unicode</param>
+        /// <returns> Formatted value </returns>
+        string FormatValue(object val, int max_len, bool is_unicode);
+
+        /// <summary> Strategy step - it prepares string to be used
+        /// for like operations </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="after">is postfix allowed</param>
+        /// <param name="before">is prefix allowed </param>
+        /// <returns> Formatted value </returns>
+        string FormatValueForLike(object val, bool before, bool after);
+
+    }
+
+    ////////////////////////////////////////////////////////////////
+    /// <summary>
+    /// This class provides formatting of values for T-SQL statements.
+    /// </summary>
+    /// </remarks>
+    ////////////////////////////////////////////////////////////////
+
+    public class FormattingStrategyTSql : IFormattingStrategyAdvanced {
+
+        /// <summary> Constructor </summary>
+        public FormattingStrategyTSql() { }
+
+        /// <summary> Implementation of IFormattingStrategy </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <returns> Formatted value </returns>
+
+        string IFormattingStrategy.FormatValue(object val) {
+            return this.Format(val, -1, null);
+        }
+
+        /// <summary> Implementation of IFormattingStrategyAdvanced </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="max_len"> Maximum length - for string values only </param>
+        /// <returns> Formatted value </returns>
+
+        string IFormattingStrategyAdvanced.FormatValue(object val, int max_len) {
+            return this.Format(val, max_len, null);
+        }
+
+        /// <summary> Implementation of IFormattingStrategyAdvanced </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="max_len"> Maximum length - for string values only </param>
+        /// <param name="is_unicode"> Flag if strings should eb handled as unicode </param>
+        /// <returns> Formatted value </returns>
+
+        string IFormattingStrategyAdvanced.FormatValue(object val, int max_len, bool is_unicode) {
+            return this.Format(val, max_len, null, is_unicode);
+        }
+
+        /// <summary> Implementation of IFormattingStrategyAdvanced </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="after">is postfix allowed</param>
+        /// <param name="before">is prefix allowed </param>
+        /// <returns> Formatted value </returns>
+
+        string IFormattingStrategyAdvanced.FormatValueForLike(object val, bool before, bool after) {
+            string s = this.Format(val, -1, null);
+            if (s == "NULL") return s;
+            s = s.Remove(1, 1);
+            s = s.Remove(s.Length - 1, 1);
+            s = "'" + (before ? "%" : "") + s + (after ? "%" : "") + "'";
+            return s;
+        }
+
+
+        /// <summary> Strategy step - this method provides means to
+        /// control number of decimal places that are used for output. </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="dec_places"> number of decimal places to be used </param>
+        /// <returns> Formatted value </returns>
+        string IFormattingStrategyAdvanced.FormatValueDecPlaces(object val, int? dec_places) {
+            return this.Format(val, -1, dec_places);
+        }
+
+        /// <summary> Implementation of strategy </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="max_len"> Maximum length - for string values only </param>
+        /// <param name="dec_places">Number of decimal places to be used.</param>
+        /// <returns> Formatted value </returns>
+
+        string Format(object val, int max_len, int? dec_places) {
+            return Format(val, max_len, dec_places, false);
+        }
+        /// <summary> Implementation of strategy </summary>
+        /// <param name="val"> Value to be formatted </param>
+        /// <param name="max_len"> Maximum length - for string values only </param>
+        /// <param name="dec_places"> Number of decimal places to be used. </param>
+        /// <param name="is_unicode"> Flag if is unicode </param>
+        /// <returns> Formatted value </returns>
+
+        string Format(object val, int max_len, int? dec_places, bool is_unicode) {
+
+            if (val == null) return "NULL";
+            if (val is DBNull) return "NULL";
+
+            string s;
+            Type t = val.GetType();
+
+            if (t == typeof(SqlInt32)) {
+                SqlInt32 i = (SqlInt32)val;
+                if (i.IsNull) s = "NULL";
+                else s = i.ToString();
+
+            } else if (t == typeof(int?)) {
+                int? i = (int?)val;
+                if (!i.HasValue) s = "NULL";
+                else s = i.ToString();
+
+            } else if (t == typeof(short?)) {
+                short? i = (short?)val;
+                if (!i.HasValue) s = "NULL";
+                else s = i.ToString();
+
+            } else if (t == typeof(long?)) {
+                long? i = (long?)val;
+                if (!i.HasValue) s = "NULL";
+                else s = i.ToString();
+
+            } else if (t == typeof(byte?)) {
+                byte? i = (byte?)val;
+                if (!i.HasValue) s = "NULL";
+                else s = i.ToString();
+
+            } else if (t == typeof(SqlDecimal)) {
+                SqlDecimal d = (SqlDecimal)val;
+                if (d.IsNull) s = "NULL";
+                else s = (this as IFormattingStrategyAdvanced).FormatValueDecPlaces((decimal)d, dec_places);
+
+            } else if (t == typeof(decimal?)) {
+                decimal? d = (decimal?)val;
+                if (!d.HasValue) s = "NULL";
+                else s = (this as IFormattingStrategyAdvanced).FormatValueDecPlaces((decimal)d, dec_places);
+
+            } else if (t == typeof(decimal)) {
+                decimal d = (decimal)val;
+                if (dec_places != null)
+                    d = Math.Round(d, dec_places ?? 0);
+                s = d.ToString(ifp);
+
+            } else if (t == typeof(SqlBoolean)) {
+                SqlBoolean b = (SqlBoolean)val;
+                if (b.IsNull) s = "NULL";
+                else s = this.Format((bool)b, max_len, null);
+
+            } else if (t == typeof(bool?)) {
+                bool? b = (bool?)val;
+                if (!b.HasValue) s = "NULL";
+                else s = this.Format((bool)b, max_len, null, is_unicode);
+
+            } else if (t == typeof(bool)) {
+                s = (bool)val ? "1" : "0";
+
+            } else if (t == typeof(SqlDateTime)) {
+                SqlDateTime d = (SqlDateTime)val;
+                if (d.IsNull) s = "NULL";
+                else s = "'" + ((DateTime)d).ToString("s") + "'";
+
+            } else if (t == typeof(DateTime?)) {
+                DateTime? d = (DateTime?)val;
+                if (!d.HasValue) s = "NULL";
+                else s = "'" + ((DateTime)d).ToString("s") + "'";
+
+            } else if (t == typeof(DateTime)) {
+                DateTime d = (DateTime)val;
+                s = "'" + ((DateTime)d).ToString("s") + "'";
+
+            } else if (t == typeof(char)) {
+                s = val.ToString();
+                s = s.Replace("'", "''");
+                s = (is_unicode ? "N'" : "'") + s + "'";
+
+            } else if (t == typeof(string)) {
+                s = val.ToString();
+                if (max_len > 0) s = s.Substring(0, Math.Min(s.Length, max_len));
+                s = s.Replace("'", "''");
+                s = (is_unicode ? "N'" : "'") + s + "'";
+
+            } else if (t == typeof(System.Guid)) {
+                s = "'" + ((Guid)val).ToString("B") + "'";
+
+            } else if (t == typeof(SqlGuid)) {
+                SqlGuid g = (SqlGuid)val;
+                if (g.IsNull) s = "NULL";
+                else s = "'" + ((Guid)g).ToString("B") + "'";
+
+            } else if (t == typeof(Guid?)) {
+                Guid? g = (Guid?)val;
+                if (!g.HasValue) s = "NULL";
+                else s = "'" + ((Guid)g).ToString("B") + "'";
+
+            } else if (t == typeof(byte[])) {
+                var sb = new System.Text.StringBuilder();
+                foreach (var b in (byte[])val) {
+                    sb.AppendFormat("{0:x}", b);
+                }
+                s = "0x" + sb.ToString();
+
+            } else {
+                s = val.ToString();
+            }
+            return s;
+        }
+
+        #region ifp
+
+        /// <summary>FormatProvider to be used when interacting with database.
+        /// It is static and created once at system startup.</summary>
+        static IFormatProvider ifp = CreateIFP();
+
+        /// <summary>Private static method that initializes ifp member.</summary>
+        static IFormatProvider CreateIFP() {
+            System.Globalization.NumberFormatInfo a = new System.Globalization.NumberFormatInfo();
+            a.CurrencyDecimalSeparator = ".";
+            a.NumberDecimalSeparator = ".";
+            a.PercentDecimalSeparator = ".";
+            return a;
+        }
+
+        #endregion
+
+    }
+    #endregion
+
+    #region object handler
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> This class creates insert and update statements for objects
+    /// that are data-bound - they are decorated with attributes
+    /// DataTable and DataField. </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public static class DataObjectHandler {
+
+        #region Formatting strategy
+
+        static DataObjectHandler() {
+            Fsa = new FormattingStrategyTSql();
+            Fs = Fsa;
+        }
+
+        /// <summary> This property denotes advanced formatting strategy that needs to be used. </summary>
+        public static IFormattingStrategyAdvanced Fsa { get; private set; }
+
+        /// <summary> This property denotes formatting strategy that needs to be used. </summary>
+        public static IFormattingStrategyAdvanced Fs { get; private set; }
+
+        #endregion
+
+        #region loading from data row and creation of sql
+
+        /// <summary>another version of a method with the same name.</summary>
+        /// <param name="obj"> Object holding the values that need to be inserted into database. </param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>Insert statement.</returns>
+
+        public static string CreateInsertStatement(this object obj, IDataProvider provider) {
+            return CreateInsertStatement(obj, null, provider);
+        }
+
+        /// <summary>
+        /// This method formats specified value for SQL statement (e.g. encloses strings with parentheses,
+        /// converts dates to ISO format, converts boolean to 0/1, uses correct formatter
+        /// for decimal values)...
+        /// </summary>
+        /// <param name="obj">Object we're processing</param>
+        /// <param name="property">Member whose value is to be formatted.</param>
+        /// <param name="field">Additional information of this member</param>
+        /// <returns>Formmated value of specified member, suitable for inclusion
+        /// into SQL statements</returns>
+
+        static string FormatValue(object obj, PropertyInfo property, DataFieldAttribute field) {
+            string s;
+            s = Fsa.FormatValue(property.GetValue(obj, null), field.MaxLen, field.Unicode);
+            return s;
+        }
+
+        /// <summary> This method creates insert statement for given object. </summary>
+        /// <param name="obj"> Object holding the values that need to be inserted into database. </param>
+        /// <param name="table_name">name of the table for which this insert should be generated.
+        /// if null, the name of the table is determined by DataTableAttribute of the object. </param>
+        /// <param name="provider">Provider that sql should be generated for</param>
+        /// <returns>Insert statement.</returns>
+
+        public static string CreateInsertStatement(this object obj, string table_name, IDataProvider provider) {
+            Type type = obj.GetType();
+
+            StringBuilder sb = new StringBuilder();
+            StringBuilder sb2 = new StringBuilder();
+
+            if (table_name == null) {
+                table_name = GetTableName(obj);
+            }
+            sb.AppendFormat("insert into {1}{2}.{0} (\n", table_name, provider.DatabasePrefix, provider.SchemaPrefix);
+            sb2.Append(") values (\n");
+
+            // scans all the fields and if proper attribute is found, inserts them into output string
+            foreach (var property in type.GetProperties()) {
+                var fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+                if (fields.Length == 0) continue;
+                if (fields[0].Identity) continue;
+                if (fields[0].ReadOnly) continue;
+                string s = FormatValue(obj, property, fields[0]);
+                sb.AppendFormat("\t[{0}],\n", fields[0].ColumnName);
+                sb2.AppendFormat("\t{0},\n", s);
+            }
+            sb.Remove(sb.Length - 2, 1); // remove the last comma
+            sb2.Remove(sb2.Length - 2, 1); // remove the last comma
+            sb2.Append(")");
+            return sb.ToString() + sb2.ToString();
+        }
+
+        /// <summary> Simple method that given DAL object creates a list of variable declarations
+        /// and setters for them that correspond to values/fields from DAL object. </summary>
+        public static string CreateDeclarationStatements(BaseTableWrapper obj) {
+            return CreateDeclarationStatements(obj, null, true); // return all fields
+        }
+
+        /// <summary> Simple method that given DAL object creates a list of variable declarations
+        /// and setters for them that correspond to values/fields from DAL object. </summary>
+        public static string CreateDeclarationStatements(BaseTableWrapper obj, string[] target_fields, bool ignore_target_fields) {
+            var type = obj.GetType();
+            var sb = new StringBuilder();
+            if (target_fields == null)
+                target_fields = new string[0];
+
+            // scans all the fields and if proper attribute is found, inserts them into output string
+            foreach (var property in type.GetProperties()) {
+                var fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+                if (fields.Length == 0) continue;
+                //if (fields[0].Identity) continue;
+                //if (fields[0].ReadOnly) continue;
+                var field = fields[0];
+                if (target_fields.Contains(field.ColumnName)) {
+                    if (ignore_target_fields)
+                        continue;
+                } else {
+                    if (!ignore_target_fields)
+                        continue;
+                }
+
+                var s = FormatValue(obj, property, field);
+                sb.AppendFormat("declare @{0} {1}; set @{0} = {2}; ", field.ColumnName, field.DbType, s);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// This method creates update statement for all fields of the table
+        /// </summary>
+        /// <param name="obj">object with values</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>update statement</returns>
+        public static string CreateUpdateStatement(BaseTableWrapper obj, IDataProvider provider) {
+            return CreateUpdateStatement(obj, "", true, provider);
+        }
+
+        /// <summary>
+        /// This method creates single string from collection of equality expressions.
+        /// It also concatenates them using provided flags
+        /// </summary>
+        static string CreateSingleString(List<string> ar, bool use_comma, bool use_tab, bool use_new_line) {
+            var sb = new StringBuilder();
+            var pos = 0;
+            foreach (var s in ar) {
+                if (pos++ > 0) {
+                    if (use_comma)
+                        sb.Append(", ");
+                    else
+                        sb.Append(" and ");
+                    if (use_new_line) sb.Append("\n");
+                }
+                if (use_tab) sb.Append("\t");
+                sb.Append(s);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary> This method creates update statement for given object. </summary>
+        /// <param name="obj"> Object holding the values that need to be updated in the database. </param>
+        /// <param name="ignore_target_fields">If true then all fields in parameter target_fields
+        /// will be ignored, all the rest will be used. If false, only selected
+        /// fields will be used for update. </param>
+        /// <param name="target_fields">Comma delimited list of fields that should be used/ignore.
+        /// Names are case-insensitive, ' ' characters are trimmed.</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>Update statement.</returns>
+
+        public static string CreateUpdateStatement(BaseTableWrapper obj, string target_fields, bool ignore_target_fields, IDataProvider provider) {
+            return CreateUpdateStatement(obj, target_fields.Split(','), ignore_target_fields, provider);
+        }
+
+        /// <summary> This method creates update statement for given object. </summary>
+        /// <param name="obj"> Object holding the values that need to be updated in the database. </param>
+        /// <param name="ignore_target_fields">If true then all fields in parameter target_fields
+        /// will be ignored, all the rest will be used. If false, only selected
+        /// fields will be used for update. </param>
+        /// <param name="target_fields">Comma delimited list of fields that should be used/ignore.
+        /// Names are case-insensitive, ' ' characters are trimmed.</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>Update statement.</returns>
+
+        public static string CreateUpdateStatement(BaseTableWrapper obj, string[] target_fields, bool ignore_target_fields, IDataProvider provider) {
+            Type type = obj.GetType();
+
+            string table_name = GetTableName(obj);
+
+            for (int i = 0; i < target_fields.Length; i++)
+                target_fields[i] = target_fields[i].Trim().ToLower();
+
+            var ar_body = new List<string>();
+            var ar_where = new List<string>();
+
+            // scans all the fields and if proper attribute is found, inserts them into output string
+            foreach (var property in type.GetProperties()) {
+                var fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+
+                if (fields.Length == 0) continue;
+
+                string column_name = fields[0].ColumnName;
+                bool is_in_where_clause = fields[0].Key;
+                bool should_include = (!fields[0].Identity) && (!fields[0].ReadOnly); // identities must never be updated
+
+                if (Array.IndexOf(target_fields, column_name) >= 0) {
+                    if (ignore_target_fields)
+                        should_include = false;
+                } else {
+                    if (!ignore_target_fields)
+                        should_include = false;
+                }
+                if (!is_in_where_clause && !should_include) continue;
+
+                string s = FormatValue(obj, property, fields[0]);
+                string ts = String.Format("{0} = {1}", column_name, s);
+                if (should_include) {
+                    ar_body.Add(ts);
+                }
+                if (is_in_where_clause) {
+                    ar_where.Add(ts);
+                }
+            }
+
+            if (ar_where.Count == 0)
+                throw new Exception("Where condition not set: no key column found.");
+
+            // finally, construct the result
+            string res = "update {3}{4}.{0} set\n {1} where {2}";
+            res = String.Format(
+                res,
+                table_name,
+                CreateSingleString(ar_body, true, true, true), // sb.ToString(),
+                CreateSingleString(ar_where, false, true, true), // sb2.ToString()
+                provider.DatabasePrefix,
+                provider.SchemaPrefix
+            );
+            return res;
+        }
+
+        /// <summary> This method creates delete statement </summary>
+        /// <param name="obj">object to be deleted</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>delete string</returns>
+
+        public static string CreateDeleteStatement(BaseTableWrapper obj, IDataProvider provider) {
+            Type type = obj.GetType();
+            var ar_where = new List<string>();
+            string table_name = GetTableName(obj);
+
+            // scans all the fields and if proper attribute is found, inserts them into output string
+            foreach (var property in type.GetProperties()) {
+                var fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+
+                if (fields.Length == 0) continue;
+                if (!fields[0].Key) continue;
+
+                string s = FormatValue(obj, property, fields[0]);
+                string ts = String.Format("{0} = {1}", fields[0].ColumnName, s);
+                ar_where.Add(ts);
+            }
+
+            // final cosmetics and checks
+            if (ar_where.Count == 0)
+                throw new Exception("Where condition not set: no key members defined");
+            //where_condition = where_condition.Remove(where_condition.Length - 2, 1); // remove the last comma
+
+            // finally, construct the result
+            string res = "delete from {2}{3}.{0} where {1}";
+            res = String.Format(res, table_name, CreateSingleString(ar_where, false, true, true), provider.DatabasePrefix, provider.SchemaPrefix);
+            return res;
+        }
+
+        /// <summary> This method creates list of columns that comprise key of this object </summary>
+        /// <param name="type"> Type of object to be inspected </param>
+        /// <returns> List of member names </returns>
+
+        public static PropertyInfo[] GetIdColumns(Type type) {
+            var ar = new List<PropertyInfo>();
+
+            // first determine name of the table
+            // scans all the fields and if proper attribute is found, inserts them into output array
+            foreach (var property in type.GetProperties()) {
+                var fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+
+                if (fields.Length == 0) continue;
+                if (fields[0].Key)
+                    ar.Add(property);
+            }
+            return ar.ToArray();
+        }
+
+        /// <summary> This method returns array of DataField attributes that are defined for specified member </summary>
+        /// <param name="property"> Member object </param>
+        /// <returns>Array of DataField attributes</returns>
+        public static DataFieldAttribute[] GetDataFieldAttribute(MemberInfo property) {
+            return (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+        }
+
+        /// <summary>
+        /// This method determines name of the database table that provider object is wrapper for.
+        /// </summary>
+        /// <param name="t">Wrapper object type</param>
+        /// <returns>Table name - if no tabl eis specified, it throws an exception</returns>
+        public static string GetTableName(Type t) {
+            var f = (DataTableAttribute[])t.GetCustomAttributes(typeof(DataTableAttribute), true);
+            if (f.Length != 1)
+                throw new Exception("Class " + t.FullName + " does not define attribute DataTable.", null);
+            return f[0].TableName;
+        }
+
+        /// <summary>
+        /// This method determines name of the database table that provider object is wrapper for.
+        /// </summary>
+        /// <param name="obj">Wrapper object</param>
+        /// <returns>Table name - if no tabl eis specified, it throws an exception</returns>
+        public static string GetTableName(object obj) {
+            return GetTableName(obj.GetType());
+        }
+        /// <summary> This method returns DAL type fro specified table name </summary>
+        public static Type GetTypeForTable(string table_name) {
+            return DalMappings.GetTypeForTable(table_name);
+        }
+
+        /// <summary> Wrapper for another method with the same name.
+        /// No trimming is performed</summary>
+        public static void FillObjectFromDataRow(this object obj, DataRow r) {
+            FillObjectFromDataRow(obj, r, false);
+        }
+
+        /// <summary> This method fills given object from the datarow object. </summary>
+        /// <param name="obj"> Object to be filled. </param>
+        /// <param name="r"> DataRow that holds the values to be filled into the object. </param>
+        /// <param name="trim_strings"> If true, all string members are trimmed</param>
+
+        public static void FillObjectFromDataRow(this object obj, DataRow r, bool trim_strings) {
+            FillObjectFromDataRow(obj, r, trim_strings, false);
+        }
+
+        /// <summary> This method fills given object from the datarow object. </summary>
+        /// <param name="obj"> Object to be filled. </param>
+        /// <param name="r"> DataRow that holds the values to be filled into the object. </param>
+        /// <param name="trim_strings"> If true, all string members are trimmed</param>
+        /// <param name="skip_identity"> Should identity fields be skipped </param>
+
+        public static void FillObjectFromDataRow(this object obj, DataRow r, bool trim_strings, bool skip_identity) {
+            Type type = obj.GetType();
+
+            // scans all the fields and if proper attribute is found, fetch the value from dat row
+            foreach (var property in type.GetProperties()) {
+                DataFieldAttribute[] fields = (DataFieldAttribute[])property.GetCustomAttributes(typeof(DataFieldAttribute), true);
+                if (fields.Length == 0) continue;
+                if (fields[0].Identity && skip_identity) continue;
+                string col_name = fields[0].ColumnName;
+
+                // identity column can be missing
+                if (r.Table.Columns.Contains(col_name) == false) {
+                    string s = "Error while filling member {0} - field \"{1}\" does not exist.";
+                    throw new Exception(String.Format(s, property.Name, col_name));
+                }
+
+                try {
+                    if (property.PropertyType == typeof(Char)) {
+                        // check length - it has to be 1
+                        string s = (string)r[col_name];
+                        if (s.Length != 1) throw new Exception("Cannot fill character member with a string of non-1 length.");
+                        property.SetValue(obj, s[0], null);
+
+                    } else if (property.PropertyType == typeof(DateTime?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (DateTime)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(int?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (int)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(byte?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (byte)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(decimal?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (decimal)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(short?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (short)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(long?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (long)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(Guid?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (Guid)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(bool?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (bool)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(double?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (double)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(float?)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else property.SetValue(obj, (float)r[col_name], null);
+
+                    } else if (property.PropertyType == typeof(float)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else {
+                            double val = (double)r[col_name];
+                            property.SetValue(obj, (float)val, null);
+                        }
+                    } else if (property.PropertyType == typeof(SqlBoolean)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, SqlBoolean.Null, null);
+                        else property.SetValue(obj, new SqlBoolean((bool)r[col_name]), null);
+
+                    } else if (property.PropertyType == typeof(SqlDecimal)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, SqlDecimal.Null, null);
+                        else property.SetValue(obj, new SqlDecimal((decimal)r[col_name]), null);
+
+                    } else if (property.PropertyType == typeof(decimal)) {
+                        // we need to check for negative zeros
+                        decimal d = (decimal)r[col_name];
+                        property.SetValue(obj, (d == -0.0m ? 0 : d), null);
+
+                    } else if (property.PropertyType == typeof(SqlByte)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, SqlByte.Null, null);
+                        else property.SetValue(obj, new SqlByte((byte)r[col_name]), null);
+
+                    } else if (property.PropertyType == typeof(SqlDateTime)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, SqlDateTime.Null, null);
+                        else property.SetValue(obj, new SqlDateTime((DateTime)r[col_name]), null);
+
+                    } else if (property.PropertyType == typeof(SqlInt32)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, SqlInt32.Null, null);
+                        else property.SetValue(obj, new SqlInt32((int)r[col_name]), null);
+
+                    } else if (property.PropertyType == typeof(byte[])) {
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else {
+                            // we support automatic conversion from long to byte[]
+                            var data = r[col_name];
+                            byte[] data2;
+                            if (data.GetType() == typeof(long))
+                                data2 = System.BitConverter.GetBytes((long)data);
+                            else if (data.GetType() == typeof(ulong))
+                                data2 = System.BitConverter.GetBytes((ulong)data);
+                            else
+                                data2 = (byte[])data;
+                            property.SetValue(obj, data2, null);
+                        }
+
+                    } else if (property.PropertyType == typeof(string)) {
+                        // we need to check for null values
+                        if (r.IsNull(col_name)) property.SetValue(obj, null, null);
+                        else if (trim_strings) property.SetValue(obj, ((string)r[col_name]).Trim(), null);
+                        else property.SetValue(obj, (string)r[col_name], null);
+
+                    } else {
+                        property.SetValue(obj, r[col_name], null);
+                    }
+                } catch (Exception ex) {
+                    string s = "Error while filling member {0} with value \"{1}\"";
+                    throw new Exception(String.Format(s, property.Name, r[col_name]), ex);
+                }
+            }
+        }
+        #endregion
+    }
+
+    #endregion
+
+    #region base class for table wrapper objects
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    /// <summary> Base class for all table wrappers - used by DataObjectHandler. </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public partial class BaseTableWrapper {
+
+        #region static data
+
+        /// <summary> This class contains  </summary>
+        private class WrapperInfo {
+
+            /// <summary> Wrapper type (derived class) </summary>
+            public Type wrapper_type;
+
+            /// <summary> List of key columns </summary>
+            public PropertyInfo[] id_columns;
+
+            /// <summary> DataField attibutes of key columns </summary>
+            public DataFieldAttribute[] id_columns_dfa;
+        }
+
+        /// <summary> Lock object - used to prevent multiple initializations. </summary>
+        static object lock_object = new object();
+
+        static Dictionary<Type, WrapperInfo> mapping = new Dictionary<Type, WrapperInfo>();
+
+        /// <summary> List of key columns </summary>
+        private PropertyInfo[] IdColumns {
+            get {
+                Type t = this.GetType();
+                if (!mapping.ContainsKey(t))
+                    InitializeMapping(t);
+                lock (lock_object) {
+                    return mapping[t].id_columns;
+                }
+            }
+        }
+
+        /// <summary> DataField attibutes of key columns </summary>
+        private DataFieldAttribute[] IdColumnsDfa {
+            get {
+                Type t = this.GetType();
+                if (!mapping.ContainsKey(t))
+                    InitializeMapping(t);
+                lock (lock_object) {
+                    return mapping[t].id_columns_dfa;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Static constructor.
+        /// It initializes static members.
+        /// </summary>
+        private static void InitializeMapping(Type t) {
+            lock (lock_object) {
+                if (mapping.ContainsKey(t)) return;
+
+                WrapperInfo wi = new WrapperInfo();
+                wi.wrapper_type = t;
+                wi.id_columns = DataObjectHandler.GetIdColumns(t);
+                wi.id_columns_dfa = new DataFieldAttribute[wi.id_columns.Length];
+                for (int i = 0; i < wi.id_columns.Length; i++) {
+                    wi.id_columns_dfa[i] = DataObjectHandler.GetDataFieldAttribute(wi.id_columns[i])[0];
+                }
+                mapping.Add(t, wi);
+            }
+        }
+
+        #endregion
+
+        #region supress logging of this type
+
+        /// <summary> Logging settings for derived type </summary>
+        private DataTableLoggingAttribute logging_attr = null;
+
+        /// <summary> This method retrieves logging settings. </summary>
+        protected DataTableLoggingAttribute GetLoggingFlags() {
+            if (logging_attr == null) {
+                var attrs = this.GetType().GetCustomAttributes(typeof(DataTableLoggingAttribute), false);
+                if (attrs != null && attrs.Length > 0) {
+                    logging_attr = attrs[0] as DataTableLoggingAttribute;
+                } else {
+                    logging_attr = new DataTableLoggingAttribute();
+                }
+            }
+            return logging_attr;
+        }
+
+        #endregion
+
+        #region events
+
+        /// <summary> Follow-up code that is raised after the insert. </summary>
+        public virtual void AfterInsert(IDataProvider provider) { }
+
+        /// <summary> Follow-up code that is raised after the delete. </summary>
+        public virtual void AfterDelete(IDataProvider provider) { }
+
+        /// <summary> Follow-up code that is raised after the update. </summary>
+        public virtual void AfterUpdate(IDataProvider provider) { }
+
+        #endregion
+
+        #region insert
+
+        /// <summary> This method returns insert SQL statement for this object. </summary>
+        /// <returns></returns>
+        public string CreateInsertSqlStatement(IDataProvider provider) {
+            return DataObjectHandler.CreateInsertStatement(this, provider);
+        }
+
+        /// <summary> This method is used to insert data from this object into data table.
+        /// If one of the key columns is identity, this value is retrieved. For this to work, we
+        /// assume that there is only one identity column, that it is marked as key and
+        /// that data provider avoids returning value of identity that could be created by INSERT trigger. </summary>
+        /// <param name="provider">Database access provider</param>
+        public virtual void Insert(IDataProvider provider) {
+
+            // insert into database
+            string sql = CreateInsertSqlStatement(provider);
+            if (GetLoggingFlags().SkipLoggingForInsert)
+                provider.SuppressLoggingOfNextCommand();
+            provider.ExecuteNonQuery(sql);
+
+            // retrieve identity if needed
+            for (int i = 0; i < IdColumnsDfa.Length; i++) {
+                if (IdColumnsDfa[i].Identity) {
+                    IdColumns[i].SetValue(this, provider.GetIdentity(), null);
+                }
+            }
+
+            this.AfterInsert(provider);
+        }
+
+        #endregion
+
+        #region update
+
+        /// <summary> This method is used to update data from this object into data table </summary>
+        /// <param name="provider">Database access provider</param>
+        public virtual void Update(IDataProvider provider) {
+            string sql = DataObjectHandler.CreateUpdateStatement(this, provider);
+            if (GetLoggingFlags().SkipLoggingForUpdate)
+                provider.SuppressLoggingOfNextCommand();
+            provider.ExecuteNonQuery(sql);
+            this.AfterUpdate(provider);
+        }
+
+        /// <summary>
+        /// This method is used to update data from this object into data table
+        /// </summary>
+        /// <param name="provider">Database access provider</param>
+        /// <param name="ignore_target_fields">Should target fields be updated (false) or ignored (true)</param>
+        /// <param name="target_fields">list of fields to update (or ignore)</param>
+        public virtual void Update(IDataProvider provider, string target_fields, bool ignore_target_fields) {
+            string sql = DataObjectHandler.CreateUpdateStatement(this, target_fields, ignore_target_fields, provider);
+            if (GetLoggingFlags().SkipLoggingForUpdate)
+                provider.SuppressLoggingOfNextCommand();
+            provider.ExecuteNonQuery(sql);
+            this.AfterUpdate(provider);
+        }
+
+        /// <summary>
+        /// This method is used to update data from this object into data table
+        /// </summary>
+        /// <param name="provider">Database access provider</param>
+        /// <param name="ignore_target_fields">Should target fields be updated (false) or ignored (true)</param>
+        /// <param name="target_fields">list of fields to update (or ignore)</param>
+        public virtual void Update(IDataProvider provider, string[] target_fields, bool ignore_target_fields) {
+            string sql = DataObjectHandler.CreateUpdateStatement(this, target_fields, ignore_target_fields, provider);
+            if (GetLoggingFlags().SkipLoggingForUpdate)
+                provider.SuppressLoggingOfNextCommand();
+            provider.ExecuteNonQuery(sql);
+            this.AfterUpdate(provider);
+        }
+
+        /// <summary>
+        /// This method is used to update data from this object into data table
+        /// </summary>
+        /// <param name="provider">Database access provider</param>
+        /// <param name="target_fields">list of fields to update (or ignore)</param>
+        public virtual void Update(IDataProvider provider, params string[] target_fields) {
+            string sql = DataObjectHandler.CreateUpdateStatement(this, target_fields, false, provider);
+            if (GetLoggingFlags().SkipLoggingForUpdate)
+                provider.SuppressLoggingOfNextCommand();
+            provider.ExecuteNonQuery(sql);
+            this.AfterUpdate(provider);
+        }
+
+        #endregion
+
+        #region delete
+
+        /// <summary> This method is used to delete record that this object contains </summary>
+        /// <param name="provider">Database access provider</param>
+        public virtual void Delete(IDataProvider provider) {
+            string sql = DataObjectHandler.CreateDeleteStatement(this, provider);
+            if (GetLoggingFlags().SkipLoggingForDelete)
+                provider.SuppressLoggingOfNextCommand();
+            provider.ExecuteNonQuery(sql);
+            this.AfterDelete(provider);
+        }
+
+        #endregion
+
+        #region loading
+
+        /// <summary> this method loads this object with that data from the database, with specified value of key field </summary>
+        /// <param name="provider"> Database access provider </param>
+        /// <param name="id"> Id of record to be loaded from the database </param>
+        public virtual void Load(IDataProvider provider, object id) {
+            if (IdColumns.Length != 1)
+                throw new ArgumentException("This class contains invalid number of id columns (expecting one): " + this.GetType().FullName);
+
+            Load(provider, IdColumnsDfa[0].ColumnName, id);
+        }
+
+        /// <summary> this method loads this object with that data from the database, with specified value of specified field </summary>
+        /// <param name="provider"> Database access provider </param>
+        /// <param name="column_name"> Column to look up </param>
+        /// <param name="id"> Id of record to be loaded from the database </param>
+        public virtual void Load(IDataProvider provider, string column_name, object id) {
+
+            string sql = CreateSelectStatement(DataObjectHandler.GetTableName(this), column_name, id, provider);
+            DataTable tab = provider.GetDataTable(sql);
+
+            if (tab.Rows.Count == 0) {
+                throw new ArgumentException("No data found with specified id: " + id + ", class = " + this.GetType().FullName);
+            }
+
+            if (tab.Rows.Count > 1) {
+                throw new ArgumentException("Multiple rows found with specified id: " + id + ", class = " + this.GetType().FullName);
+            }
+
+            this.Load(tab.Rows[0]);
+        }
+
+        /// <summary> This method constructs select SQL statement for this type</summary>
+        /// <param name="id">Id value</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>Select statement</returns>
+        public string CreateSelectStatement(IDataProvider provider, object id) {
+            if (IdColumns.Length != 1)
+                throw new ArgumentException("This class contains invalid number of id columns (expecting one): " + this.GetType().FullName);
+
+            return CreateSelectStatement(this.GetType(), IdColumnsDfa[0].ColumnName, id, provider);
+        }
+
+        /// <summary> This method constructs select SQL statement for specified type</summary>
+        /// <param name="type">Type of table wrapper - contains information about table name </param>
+        /// <param name="column_name">Name of the id column</param>
+        /// <param name="id">Id value</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>Select statement</returns>
+        public static string CreateSelectStatement(Type type, string column_name, object id, IDataProvider provider) {
+            return CreateSelectStatement(DataObjectHandler.GetTableName(type), column_name, id, provider);
+        }
+
+        /// <summary> This method constructs select SQL statement for specified table</summary>
+        /// <param name="table_name">Name of the database table </param>
+        /// <param name="column_name">Name of the id column</param>
+        /// <param name="id">Id value</param>
+        /// <param name="provider">Provider to generate SQL for </param>
+        /// <returns>Select statement</returns>
+        public static string CreateSelectStatement(string table_name, string column_name, object id, IDataProvider provider) {
+            string sql = "select * from {3}{4}.{0} where {1} = {2}";
+            sql = string.Format(sql, table_name, column_name, DataObjectHandler.Fs.FormatValue(id), provider.DatabasePrefix, provider.SchemaPrefix);
+            return sql;
+        }
+
+        /// <summary> This method fills the object with values from given data row </summary>
+        /// <param name="r"> Data row containing the data </param>
+        public void Load(DataRow r) {
+            this.FillObjectFromDataRow(r, true);
+        }
+
+        ///// <summary> This method fills the object with values from given data row </summary>
+        ///// <param name="r"> Data row containing the data </param>
+        ///// <param name="skip_identity">should identity fields be skipped</param>
+        ///// <param name="trim_strings">should string fields be trimmed</param>
+        //public virtual void Load(DataRow r, bool trim_strings, bool skip_identity) {
+        //    DataObjectHandler.FillObjectFromDataRow(this, r, trim_strings, skip_identity);
+        //}
+
+        #endregion
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    /// <summary>
+    /// This class provides utility methods for working with BaseTableWrapper.
+    /// </summary>
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    public static class BaseTableWrapperHelper {
+
+        /// <summary> This method loads single row for database and injects its values into 
+        /// a new instance of the provided table wrapper</summary>
+        /// <typeparam name="T">Table-wrapper type to be emitted.</typeparam>
+        /// <param name="db">Data provider that will return data from the database </param>
+        /// <param name="id">Record id</param>
+        /// <returns>New instance of table wrapper with data from the database</returns>
+        public static T LoadSingle<T>(this IDataProvider db, object id) where T : BaseTableWrapper, new() {
+            var rec = new T();
+            rec.Load(db, id);
+            return rec;
+        }
+
+        /// <summary> This method loads single row for database and injects its values into 
+        /// a new instance of the provided table wrapper</summary>
+        /// <typeparam name="T">Table-wrapper type to be emitted.</typeparam>
+        /// <param name="db">Data provider that will return data from the database </param>
+        /// <param name="field_name">Field by which to search</param>
+        /// <param name="id">Field value to match - exactly one record must be returned.</param>
+        /// <returns>New instance of table wrapper with data from the database</returns>
+        public static T LoadSingle<T>(this IDataProvider db, string field_name, object id) where T : BaseTableWrapper, new() {
+            var rec = new T();
+            rec.Load(db, field_name, id);
+            return rec;
+        }
+        
+        #$#QUERY_HELPER#$#
+    }
+
+
+    #endregion

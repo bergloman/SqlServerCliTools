@@ -1,0 +1,46 @@
+<settings xmlns="urn:cs-generator">
+
+
+    <local_file>out\dal.cs</local_file>
+
+    <sql_server_name>localhost</sql_server_name>
+    <schema_name>carvic_cal</schema_name>
+
+    <use_username>false</use_username>
+    <uid></uid>
+    <pwd></pwd>
+
+    <export_file_name>out\dal.cs</export_file_name>
+
+    <base_class_for_tables></base_class_for_tables>
+
+    <class_prefix>Table</class_prefix>
+    <view_prefix>View</view_prefix>
+    <member_prefix></member_prefix>
+
+    <use_sps>true</use_sps>
+    <sp_class_name></sp_class_name>
+    <sp_prefix></sp_prefix>
+    <sp_data_wrapper_flag></sp_data_wrapper_flag>
+    <sp_data_wrapper_autotrim>true</sp_data_wrapper_autotrim>
+
+    <code_namespace>Dal</code_namespace>
+
+    <selected_tables></selected_tables>
+
+    <excluded_tables_prefix></excluded_tables_prefix>
+    <excluded_tables></excluded_tables>
+
+    <dont_inject_infrastructure_classes>false</dont_inject_infrastructure_classes>
+    <dont_inject_basic_sql_provider>false</dont_inject_basic_sql_provider>
+    <dont_inject_linq_helpers>false</dont_inject_linq_helpers>
+    <generate_query_object>true</generate_query_object>
+
+    <use_sp_with_tables>true</use_sp_with_tables>
+    <prefix_sp_with_tables>grp</prefix_sp_with_tables>
+    <make_names_lowercase>true</make_names_lowercase>
+
+    <additional_namespaces></additional_namespaces>
+    <namespace_start_code></namespace_start_code>
+    
+</settings>
