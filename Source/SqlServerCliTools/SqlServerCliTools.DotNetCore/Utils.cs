@@ -22,6 +22,11 @@ namespace DalGenerator {
 
         #region loading of resources
 
+        public static string LoadFileRelative(string rel_path) {
+            var s = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), rel_path);
+            return File.ReadAllText(s);
+        }
+
         /// <summary> This method loads embedded resource as string </summary>
         /// <param name="resource_name"> Name of the resource (namespace prefix is ignored) </param>
         /// <returns> Resource as string </returns>

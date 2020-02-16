@@ -1,7 +1,6 @@
 <settings xmlns="urn:cs-generator">
 
-
-    <local_file>out\dal.cs</local_file>
+    <local_file>../../../out/dal.cs</local_file>
 
     <sql_server_name>localhost</sql_server_name>
     <schema_name>carvic_cal</schema_name>
@@ -10,7 +9,7 @@
     <uid></uid>
     <pwd></pwd>
 
-    <export_file_name>out\dal.cs</export_file_name>
+    <export_file_name>../../../out/dal.cs</export_file_name>
 
     <base_class_for_tables></base_class_for_tables>
 

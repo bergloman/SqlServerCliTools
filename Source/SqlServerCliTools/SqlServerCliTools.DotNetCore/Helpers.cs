@@ -321,7 +321,7 @@ namespace DalGenerator {
                     InsertBasicProvider(sb);
                 }
                 if (pars.generate_query_object) {
-                    var s = Utils.LoadEmbededResourceAsString("query_obj.txt");
+                    var s = Utils.LoadFileRelative("clips/query_obj.txt");
                     sb.Append(s);
                 }
 
@@ -362,13 +362,17 @@ namespace DalGenerator {
         /// </summary>
         void GenerateNamespaces(StringBuilder sb) {
             Log("Generating namespaces...");
-            string s = Utils.LoadEmbededResourceAsString("namespaces.txt");
+            var s = Utils.LoadFileRelative("clips/namespaces.txt");
             sb.Append(s);
 
             // additional namespaces to be included
             if (pars.additional_namespaces != null) {
-                foreach (string ns in pars.additional_namespaces)
-                    sb.AppendLine("using " + ns.Trim() + ";");
+                foreach (string ns in pars.additional_namespaces) {
+                    var nsx = ns.Trim();
+                    if (nsx.Length > 0) {
+                        sb.AppendLine("using " + nsx + ";");
+                    }
+                }
             }
 
             sb.AppendLine();
@@ -379,10 +383,10 @@ namespace DalGenerator {
         /// </summary>
         void InsertAttributeDefinitions(StringBuilder sb, bool generate_query) {
             Log("Inserting attribute definitions...");
-            string s = Utils.LoadEmbededResourceAsString("attributes.txt");
+            var s = Utils.LoadFileRelative("clips/attributes.txt");
             string s2 = "";
             if (generate_query) {
-                s2 = Utils.LoadEmbededResourceAsString("attributes_query.txt");
+                s2 = Utils.LoadFileRelative("clips/attributes_query.txt");
             }
             s = s.Replace("#$#QUERY_HELPER#$#", s2);
             sb.AppendLine(s);
@@ -393,7 +397,7 @@ namespace DalGenerator {
         /// </summary>
         void InsertBasicProvider(StringBuilder sb) {
             Log("Inserting basic provider definitions...");
-            string s = Utils.LoadEmbededResourceAsString("basic_provider.txt");
+            var s = Utils.LoadFileRelative("clips/basic_provider.txt");
             sb.AppendLine(s);
         }
 
@@ -458,7 +462,7 @@ namespace DalGenerator {
             sb.AppendLine(indent + "#region database tables");
 
             // if no tables are specified, select all tables
-            if (pars.selected_tables == null) {
+            if (pars.selected_tables == null || pars.selected_tables.Length == 0) {
                 var tab = Utils.GetTables(con);
                 var ar = new List<string>();
 
@@ -640,7 +644,7 @@ namespace DalGenerator {
 
             helper.sb_static.AppendLine(indent + "/// <summary> Public static class containing stored-procedure wrappers. </summary>");
             helper.sb_static.AppendLine(indent + "public static class " + class_name + " {");
-            helper.sb_static.Append(Utils.LoadEmbededResourceAsString("check_nullable.txt"));
+            helper.sb_static.Append(Utils.LoadFileRelative("clips/check_nullable.txt"));
 
             helper.sb_intf.AppendLine(indent + "/// <summary> Public interface containing stored-procedure wrappers. </summary>");
             helper.sb_intf.AppendLine(indent + "public partial interface I" + class_name + " {");
@@ -651,7 +655,7 @@ namespace DalGenerator {
             helper.sb_obj.AppendLine(indent + indent + "protected IDataProviderSp provider;");
             helper.sb_obj.AppendLine(indent + indent + "public " + class_name + "Obj(IDataProviderSp _provider) { this.provider = _provider; }");
             helper.sb_obj.AppendLine("");
-            helper.sb_obj.Append(Utils.LoadEmbededResourceAsString("check_nullable.txt"));
+            helper.sb_obj.Append(Utils.LoadFileRelative("clips/check_nullable.txt"));
             helper.sb_obj.AppendLine("");
 
 
